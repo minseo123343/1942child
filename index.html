@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>마이 리틀 1942</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap');
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #87CEEB; /* 파스텔 블루 스카이 */
+            font-family: 'Fredoka One', cursive;
+            touch-action: none; /* 모바일에서 스크롤 방지 */
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            /* 배경 구름 애니메이션 효과 */
+            background: radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 20%),
+                        radial-gradient(circle at 80% 70%, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 25%);
+            background-color: #a4d8f0;
+        }
+
+        /* UI Overlays */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* UI 레이어는 클릭을 통과시킴 */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .hud {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            text-shadow: 2px 2px 0 #fff, -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff;
+        }
+
+        #score-display {
+            font-size: 2rem;
+            color: #4A90E2;
+        }
+
+        #lives-display {
+            font-size: 2rem;
+            letter-spacing: 5px;
+        }
+
+        /* Screens (Start, Game Over) */
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto; /* 화면을 클릭할 수 있도록 허용 */
+            z-index: 10;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        h1 {
+            font-size: 3rem;
+            color: #FF6B6B;
+            text-shadow: 3px 3px 0 #FFF, -1px -1px 0 #FFF, 1px -1px 0 #FFF, -1px 1px 0 #FFF, 1px 1px 0 #FFF;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        button {
+            background-color: #FFD166;
+            color: #4A4A4A;
+            border: 4px solid #FFF;
+            border-radius: 30px;
+            padding: 15px 40px;
+            font-size: 2rem;
+            font-family: 'Fredoka One', cursive;
+            cursor: pointer;
+            box-shadow: 0 8px 0 #E2B246;
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+
+        button:active {
+            transform: translateY(8px);
+            box-shadow: 0 0 0 #E2B246;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div id="ui-layer">
+            <div class="hud">
+                <div id="score-display">SCORE: 0</div>
+                <div id="lives-display">❤️❤️❤️</div>
+            </div>
+        </div>
+
+        <!-- Start Screen -->
+        <div id="start-screen" class="screen">
+            <h1>마이 리틀 1942<br>☁️ 구름의 에이스 ☁️</h1>
+            <p class="text-2xl mb-8 text-gray-700 font-bold text-center bg-white p-4 rounded-3xl border-4 border-blue-200">
+                곰돌이 비행기를 드래그해서 움직여요!<br>비눗방울이 뿅뿅 발사된답니다 🫧
+            </p>
+            <button id="start-btn">게임 시작 ✈️</button>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="game-over-screen" class="screen hidden">
+            <h1>우와, 참 잘했어요! 🎉</h1>
+            <p id="final-score" class="text-3xl mb-8 text-blue-500 font-bold bg-white p-4 rounded-3xl border-4 border-blue-200">최종 점수: 0</p>
+            <button id="restart-btn">다시 하기 🔄</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('score-display');
+        const livesDisplay = document.getElementById('lives-display');
+        const startScreen = document.getElementById('start-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const startBtn = document.getElementById('start-btn');
+        const restartBtn = document.getElementById('restart-btn');
+        const finalScoreDisplay = document.getElementById('final-score');
+
+        // 게임 설정
+        let gameWidth = window.innerWidth;
+        let gameHeight = window.innerHeight;
+        canvas.width = gameWidth;
+        canvas.height = gameHeight;
+
+        let gameLoopId;
+        let isPlaying = false;
+        let score = 0;
+        let lives = 3;
+        let frameCount = 0;
+
+        // 크기 설정 (유아용이므로 큼직하게 설정)
+        const PLAYER_SIZE = 80;
+        const BUBBLE_SIZE = 40;
+        const ENEMY_SIZE = 70;
+
+        // 게임 오브젝트 배열
+        let bubbles = [];
+        let enemies = [];
+        let particles = [];
+        let backgroundClouds = [];
+
+        // 플레이어 (곰돌이 비행기)
+        const player = {
+            x: gameWidth / 2,
+            y: gameHeight - 150,
+            size: PLAYER_SIZE,
+            isInvincible: false,
+            invincibleTimer: 0,
+            
+            draw() {
+                // 무적 상태일 때 깜빡임 효과
+                if (this.isInvincible && Math.floor(Date.now() / 100) % 2 === 0) return;
+                
+                ctx.font = `${this.size}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('🐻', this.x, this.y); // 비행기 모양 이모지나 곰돌이
+            }
+        };
+
+        // 배경 장식용 구름 초기화
+        for(let i=0; i<5; i++) {
+            backgroundClouds.push({
+                x: Math.random() * gameWidth,
+                y: Math.random() * gameHeight,
+                size: Math.random() * 100 + 50,
+                speed: Math.random() * 0.5 + 0.2
+            });
+        }
+
+        // 윈도우 리사이즈 처리
+        window.addEventListener('resize', () => {
+            gameWidth = window.innerWidth;
+            gameHeight = window.innerHeight;
+            canvas.width = gameWidth;
+            canvas.height = gameHeight;
+        });
+
+        // 입력 처리 (마우스 및 터치)
+        function movePlayer(e) {
+            if (!isPlaying) return;
+            
+            let clientX, clientY;
+            if (e.type.includes('mouse')) {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            } else if (e.type.includes('touch')) {
+                clientX = e.touches[0].clientX;
+                // 터치 시 손가락에 가려지지 않게 Y좌표를 조금 위로 올림
+                clientY = e.touches[0].clientY - 50; 
+            }
+
+            // 화면 밖으로 나가지 않도록 제한
+            player.x = Math.max(PLAYER_SIZE/2, Math.min(gameWidth - PLAYER_SIZE/2, clientX));
+            player.y = Math.max(PLAYER_SIZE/2, Math.min(gameHeight - PLAYER_SIZE/2, clientY));
+        }
+
+        canvas.addEventListener('mousemove', movePlayer);
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault(); // 스크롤 방지
+            movePlayer(e);
+        }, { passive: false });
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            movePlayer(e);
+        }, { passive: false });
+
+
+        // 비눗방울 발사
+        function shootBubble() {
+            if (!isPlaying) return;
+            bubbles.push({
+                x: player.x,
+                y: player.y - PLAYER_SIZE / 2,
+                size: BUBBLE_SIZE,
+                speed: 7 // 부드럽고 적당한 속도
+            });
+        }
+
+        // 적 생성 (구름 또는 풍선)
+        function spawnEnemy() {
+            if (!isPlaying) return;
+            
+            const types = ['☁️', '🎈'];
+            // 유아용이므로 적은 느리게 내려오도록 설정
+            const speed = Math.random() * 1.5 + 1; 
+            const type = types[Math.floor(Math.random() * types.length)];
+            
+            enemies.push({
+                x: Math.random() * (gameWidth - ENEMY_SIZE) + ENEMY_SIZE/2,
+                y: -ENEMY_SIZE,
+                size: ENEMY_SIZE,
+                speed: speed,
+                type: type
+            });
+        }
+
+        // 터지는 효과 (파티클)
+        function createParticles(x, y) {
+            particles.push({
+                x: x,
+                y: y,
+                life: 30, // 프레임 수
+                text: '✨'
+            });
+        }
+
+        // 충돌 검사 (원형 충돌)
+        function checkCollision(obj1, obj2) {
+            const dx = obj1.x - obj2.x;
+            const dy = obj1.y - obj2.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            // 이모지 렌더링 특성을 고려해 충돌 반경을 실제 사이즈보다 조금 작게 설정(관대하게)
+            return distance < (obj1.size/2 + obj2.size/2) * 0.7;
+        }
+
+        function update() {
+            if (!isPlaying) return;
+            
+            frameCount++;
+
+            // 자동 발사 (약 0.4초마다)
+            if (frameCount % 25 === 0) {
+                shootBubble();
+            }
+
+            // 적 생성 (약 1.5초마다)
+            if (frameCount % 90 === 0) {
+                spawnEnemy();
+            }
+
+            // 무적 시간 감소
+            if (player.isInvincible) {
+                player.invincibleTimer--;
+                if (player.invincibleTimer <= 0) {
+                    player.isInvincible = false;
+                }
+            }
+
+            // 배경 구름 업데이트
+            backgroundClouds.forEach(cloud => {
+                cloud.y += cloud.speed;
+                if (cloud.y > gameHeight + cloud.size) {
+                    cloud.y = -cloud.size;
+                    cloud.x = Math.random() * gameWidth;
+                }
+            });
+
+            // 비눗방울 업데이트
+            for (let i = bubbles.length - 1; i >= 0; i--) {
+                bubbles[i].y -= bubbles[i].speed;
+                // 화면 밖으로 나가면 제거
+                if (bubbles[i].y + bubbles[i].size < 0) {
+                    bubbles.splice(i, 1);
+                }
+            }
+
+            // 파티클 업데이트
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].life--;
+                particles[i].y -= 1; // 위로 살짝 올라감
+                if (particles[i].life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            // 적 업데이트 및 충돌 검사
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                let enemy = enemies[i];
+                enemy.y += enemy.speed;
+
+                // 화면 아래로 나가면 제거
+                if (enemy.y - enemy.size > gameHeight) {
+                    enemies.splice(i, 1);
+                    continue;
+                }
+
+                // 플레이어와 충돌 검사
+                if (!player.isInvincible && checkCollision(player, enemy)) {
+                    lives--;
+                    updateUI();
+                    createParticles(player.x, player.y); // 터지는 효과
+                    player.isInvincible = true;
+                    player.invincibleTimer = 60; // 1초간 무적 (60프레임)
+                    enemies.splice(i, 1);
+                    
+                    if (lives <= 0) {
+                        gameOver();
+                    }
+                    continue;
+                }
+
+                // 비눗방울과 적 충돌 검사
+                let hit = false;
+                for (let j = bubbles.length - 1; j >= 0; j--) {
+                    if (checkCollision(bubbles[j], enemy)) {
+                        score += 10;
+                        updateUI();
+                        createParticles(enemy.x, enemy.y);
+                        
+                        bubbles.splice(j, 1);
+                        enemies.splice(i, 1);
+                        hit = true;
+                        break;
+                    }
+                }
+                if(hit) continue;
+            }
+        }
+
+        function draw() {
+            // 배경 지우기
+            ctx.clearRect(0, 0, gameWidth, gameHeight);
+
+            // 텍스트 설정
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // 배경 구름 그리기 (반투명한 하얀색 원으로 표현)
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            backgroundClouds.forEach(cloud => {
+                ctx.beginPath();
+                ctx.arc(cloud.x, cloud.y, cloud.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(cloud.x + cloud.size*0.5, cloud.y + cloud.size*0.2, cloud.size*0.8, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // 파티클 그리기
+            ctx.font = '30px Arial';
+            particles.forEach(p => {
+                ctx.globalAlpha = p.life / 30; // 서서히 사라짐
+                ctx.fillText(p.text, p.x, p.y);
+            });
+            ctx.globalAlpha = 1.0; // 투명도 원상복구
+
+            // 비눗방울 그리기
+            ctx.font = `${BUBBLE_SIZE}px Arial`;
+            bubbles.forEach(b => {
+                ctx.fillText('🫧', b.x, b.y);
+            });
+
+            // 적 그리기
+            enemies.forEach(e => {
+                ctx.font = `${e.size}px Arial`;
+                ctx.fillText(e.type, e.x, e.y);
+            });
+
+            // 플레이어 그리기
+            player.draw();
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            if (isPlaying) {
+                gameLoopId = requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function updateUI() {
+            scoreDisplay.innerText = `SCORE: ${score}`;
+            let hearts = '';
+            for(let i=0; i<lives; i++) hearts += '❤️';
+            livesDisplay.innerText = hearts;
+        }
+
+        function startGame() {
+            // 초기화
+            score = 0;
+            lives = 3;
+            frameCount = 0;
+            bubbles = [];
+            enemies = [];
+            particles = [];
+            player.x = gameWidth / 2;
+            player.y = gameHeight - 150;
+            player.isInvincible = false;
+            
+            updateUI();
+            
+            // 화면 전환
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            
+            isPlaying = true;
+            gameLoop();
+        }
+
+        function gameOver() {
+            isPlaying = false;
+            cancelAnimationFrame(gameLoopId);
+            finalScoreDisplay.innerText = `최종 점수: ${score} 점!`;
+            gameOverScreen.classList.remove('hidden');
+        }
+
+        // 버튼 이벤트 바인딩
+        startBtn.addEventListener('click', startGame);
+        restartBtn.addEventListener('click', startGame);
+
+        // 초기 화면 렌더링을 위해 한 번만 그림
+        draw();
+
+    </script>
+</body>
+</html>
